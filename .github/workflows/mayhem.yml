@@ -7,8 +7,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  STRING_MAYHEMFILE: parse_string.mayhemfile
-  FILE_MAYHEMFILE: parse_file.mayhemfile
 
 jobs:
   build:
@@ -47,18 +45,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Start analysis for parse_file
+      - name: Start analysis
         uses: ForAllSecure/mcode-action@v1
         with:
           mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
-          args: --image ${{ steps.meta.outputs.tags }} --file ${{ env.FILE_MAYHEMFILE }}
-          sarif-output: sarif
-
-      - name: Start analysis for parse_string
-        uses: ForAllSecure/mcode-action@v1
-        with:
-          mayhem-token: ${{ secrets.MAYHEM_TOKEN }}
-          args: --image ${{ steps.meta.outputs.tags }} --file ${{ env.STRING_MAYHEMFILE }}
+          args: --image ${{ steps.meta.outputs.tags }}
           sarif-output: sarif
 
       - name: Upload SARIF file(s)
