@@ -2,7 +2,7 @@
 project: tz-rs
 
 # Target name (should be unique within the project)
-target: parse_file
+target: parse_string
 
 # Base image to run the binary in.
 # image: ghcr.io/prateekvishnu/tz-rs:latest
@@ -12,7 +12,6 @@ cmds:
 
     # Command used to start the target, "@@" is the input file
     # (when "@@" is omitted Mayhem defaults to stdin inputs)
-    - cmd: /parse_file
     - cmd: /parse_string
 
  
