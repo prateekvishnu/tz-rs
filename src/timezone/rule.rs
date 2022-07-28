@@ -4,7 +4,7 @@ use crate::constants::*;
 use crate::timezone::*;
 
 /// Informations needed for checking DST transition rules consistency, for a Julian day
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 struct JulianDayCheckInfos {
     /// Offset in seconds from the start of a normal year
     start_normal_year_offset: i64,
@@ -17,7 +17,7 @@ struct JulianDayCheckInfos {
 }
 
 /// Informations needed for checking DST transition rules consistency, for a day represented by a month, a month week and a week day
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 struct MonthWeekDayCheckInfos {
     /// Possible offset range in seconds from the start of a normal year
     start_normal_year_offset_range: (i64, i64),
@@ -685,7 +685,7 @@ fn check_two_month_week_days(month_week_day_1: MonthWeekDay, utc_day_time_1: i64
                         Ordering::Greater => (n + DAYS_PER_WEEK * (3 - week_before), n + DAYS_PER_WEEK * (4 - week_before)),
                     }
                 }
-                _ => unreachable!(),
+                _ => const_panic!(), // unreachable
             }
         } else {
             // month_before != month_after

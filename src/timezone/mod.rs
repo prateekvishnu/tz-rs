@@ -6,17 +6,15 @@ pub use rule::*;
 
 use crate::datetime::{days_since_unix_epoch, is_leap_year};
 use crate::error::*;
-use crate::parse::*;
 use crate::utils::*;
 use crate::UtcDateTime;
 
-use std::cmp::Ordering;
-use std::convert::TryInto;
-use std::fmt;
-use std::fs::{self, File};
-use std::io::{self, Read};
-use std::str;
-use std::time::SystemTime;
+use core::cmp::Ordering;
+use core::fmt;
+use core::str;
+
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
 
 /// Transition of a TZif file
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -121,7 +119,7 @@ impl TzAsciiStr {
             [5, head @ .., _, _] => head,
             [6, head @ .., _] => head,
             [7, head @ ..] => head,
-            _ => unreachable!(),
+            _ => const_panic!(), // unreachable
         }
     }
 
@@ -225,6 +223,8 @@ impl LocalTimeType {
 }
 
 /// Time zone
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TimeZone {
     /// List of transitions
@@ -302,12 +302,12 @@ impl<'a> TimeZoneRef<'a> {
     /// Find the local time type associated to the time zone at the specified Unix time in seconds
     #[cfg_attr(feature = "const", const_fn::const_fn)]
     pub fn find_local_time_type(&self, unix_time: i64) -> Result<&'a LocalTimeType, FindLocalTimeTypeError> {
-        let extra_rule = match self.transitions.last() {
-            None => match self.extra_rule {
+        let extra_rule = match self.transitions {
+            [] => match self.extra_rule {
                 Some(extra_rule) => extra_rule,
                 None => return Ok(&self.local_time_types[0]),
             },
-            Some(last_transition) => {
+            [.., last_transition] => {
                 let unix_leap_time = match self.unix_time_to_unix_leap_time(unix_time) {
                     Ok(unix_leap_time) => unix_leap_time,
                     Err(OutOfRangeError(error)) => return Err(FindLocalTimeTypeError(error)),
@@ -396,7 +396,7 @@ impl<'a> TimeZoneRef<'a> {
         }
 
         // Check extra rule
-        if let (Some(extra_rule), Some(last_transition)) = (&self.extra_rule, self.transitions.last()) {
+        if let (Some(extra_rule), [.., last_transition]) = (&self.extra_rule, self.transitions) {
             let last_local_time_type = &self.local_time_types[last_transition.local_time_type_index];
 
             let unix_time = match self.unix_leap_time_to_unix_time(last_transition.unix_leap_time) {
@@ -462,6 +462,7 @@ impl<'a> TimeZoneRef<'a> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl TimeZone {
     /// Construct a time zone
     pub fn new(
@@ -493,6 +494,8 @@ impl TimeZone {
     ///
     /// This method in not supported on non-UNIX platforms, and returns the UTC time zone instead.
     ///
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn local() -> Result<Self, TzError> {
         #[cfg(not(unix))]
         let local_time_zone = Self::utc();
@@ -504,12 +507,21 @@ impl TimeZone {
     }
 
     /// Construct a time zone from the contents of a time zone file
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn from_tz_data(bytes: &[u8]) -> Result<Self, TzError> {
-        parse_tz_file(bytes)
+        crate::parse::parse_tz_file(bytes)
     }
 
     /// Construct a time zone from a POSIX TZ string, as described in [the POSIX documentation of the `TZ` environment variable](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html).
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn from_posix_tz(tz_string: &str) -> Result<Self, TzError> {
+        use crate::parse::*;
+
+        use std::fs::{self, File};
+        use std::io::{self, Read};
+
         if tz_string.is_empty() {
             return Err(TzError::TzStringError(TzStringError::InvalidTzString("empty TZ string")));
         }
@@ -548,7 +560,12 @@ impl TimeZone {
     }
 
     /// Find the current local time type associated to the time zone
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn find_current_local_time_type(&self) -> Result<&LocalTimeType, TzError> {
+        use core::convert::TryInto;
+        use std::time::SystemTime;
+
         Ok(self.find_local_time_type(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs().try_into()?)?)
     }
 
@@ -582,6 +599,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_time_zone() -> Result<()> {
         let utc = LocalTimeType::utc();
@@ -610,6 +628,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn test_time_zone_from_posix_tz() -> Result<()> {
         #[cfg(unix)]
@@ -635,6 +654,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_leap_seconds() -> Result<()> {
         let time_zone = TimeZone::new(
@@ -686,6 +706,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_leap_seconds_overflow() -> Result<()> {
         let time_zone_err = TimeZone::new(

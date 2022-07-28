@@ -1,6 +1,6 @@
 [package]
 name = "tz-rs"
-version = "0.6.9"
+version = "0.6.12"
 edition = "2018"
 authors = ["x-hgg-x"]
 repository = "https://github.com/x-hgg-x/tz-rs"
@@ -13,9 +13,15 @@ readme = "README.md"
 [lib]
 name = "tz"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
-const_fn = { version = "0.4", optional = true }
+const_fn = { version = "0.4.4", optional = true }
 
 [features]
-default = ["const"]
+default = ["std", "const"]
+std = ["alloc"]
+alloc = []
 const = ["const_fn"]

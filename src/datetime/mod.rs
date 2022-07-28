@@ -9,10 +9,8 @@ use crate::error::*;
 use crate::timezone::{LocalTimeType, TimeZoneRef};
 use crate::utils::*;
 
-use std::cmp::Ordering;
-use std::convert::TryInto;
-use std::fmt;
-use std::time::SystemTime;
+use core::cmp::Ordering;
+use core::fmt;
 
 /// UTC date time exprimed in the [proleptic gregorian calendar](https://en.wikipedia.org/wiki/Proleptic_Gregorian_calendar)
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -155,7 +153,12 @@ impl UtcDateTime {
     }
 
     /// Returns the current UTC date time
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn now() -> Result<Self, TzError> {
+        use core::convert::TryInto;
+        use std::time::SystemTime;
+
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
         Ok(Self::from_timespec(now.as_secs().try_into()?, now.subsec_nanos())?)
     }
@@ -273,6 +276,8 @@ impl DateTime {
     /// * `time_zone_ref`: Reference to a time zone
     ///
     #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
     pub fn find(
         year: i32,
         month: u8,
@@ -283,7 +288,77 @@ impl DateTime {
         nanoseconds: u32,
         time_zone_ref: TimeZoneRef,
     ) -> Result<FoundDateTimeList, TzError> {
-        find_date_time(year, month, month_day, hour, minute, second, nanoseconds, time_zone_ref)
+        let mut found_date_time_list = FoundDateTimeList::default();
+        find_date_time(&mut found_date_time_list, year, month, month_day, hour, minute, second, nanoseconds, time_zone_ref)?;
+        Ok(found_date_time_list)
+    }
+
+    /// Find the possible date times corresponding to a date, a time and a time zone.
+    ///
+    /// This method doesn't allocate, and instead takes a preallocated buffer as an input.
+    /// It returns a [`FoundDateTimeListRefMut`] wrapper which has additional methods.
+    ///
+    /// ## Inputs
+    ///
+    /// * `buf`: Preallocated buffer
+    /// * `year`: Year
+    /// * `month`: Month in `[1, 12]`
+    /// * `month_day`: Day of the month in `[1, 31]`
+    /// * `hour`: Hours since midnight in `[0, 23]`
+    /// * `minute`: Minutes in `[0, 59]`
+    /// * `second`: Seconds in `[0, 60]`, with a possible leap second
+    /// * `nanoseconds`: Nanoseconds in `[0, 999_999_999]`
+    /// * `time_zone_ref`: Reference to a time zone
+    ///
+    /// ## Usage
+    ///
+    /// ```rust
+    /// # fn main() -> Result<(), tz::TzError> {
+    /// use tz::datetime::{DateTime, FoundDateTimeKind};
+    /// use tz::timezone::{LocalTimeType, TimeZoneRef, Transition};
+    ///
+    /// let transitions = &[Transition::new(3600, 1), Transition::new(86400, 0), Transition::new(i64::MAX, 0)];
+    /// let local_time_types = &[LocalTimeType::new(0, false, Some(b"STD"))?, LocalTimeType::new(3600, true, Some(b"DST"))?];
+    /// let time_zone_ref = TimeZoneRef::new(transitions, local_time_types, &[], &None)?;
+    ///
+    /// // Buffer is too small, so the results are non exhaustive
+    /// let mut small_buf = [None; 1];
+    /// assert!(!DateTime::find_n(&mut small_buf, 1970, 1, 2, 0, 30, 0, 0, time_zone_ref)?.is_exhaustive());
+    ///
+    /// // Fill buffer
+    /// let mut buf = [None; 2];
+    /// let found_date_time_list = DateTime::find_n(&mut buf, 1970, 1, 2, 0, 30, 0, 0, time_zone_ref)?;
+    /// let data = found_date_time_list.data();
+    /// assert!(found_date_time_list.is_exhaustive());
+    /// assert_eq!(found_date_time_list.count(), 2);
+    /// assert!(matches!(data, [Some(FoundDateTimeKind::Normal(..)), Some(FoundDateTimeKind::Normal(..))]));
+    ///
+    /// // We can reuse the buffer
+    /// let found_date_time_list = DateTime::find_n(&mut buf, 1970, 1, 1, 1, 30, 0, 0, time_zone_ref)?;
+    /// let data = found_date_time_list.data();
+    /// assert!(found_date_time_list.is_exhaustive());
+    /// assert_eq!(found_date_time_list.count(), 1);
+    /// assert!(found_date_time_list.unique().is_none()); // FoundDateTimeKind::Skipped
+    /// assert!(matches!(data, &[Some(FoundDateTimeKind::Skipped { .. })]));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    #[allow(clippy::too_many_arguments)]
+    pub fn find_n<'a>(
+        buf: &'a mut [Option<FoundDateTimeKind>],
+        year: i32,
+        month: u8,
+        month_day: u8,
+        hour: u8,
+        minute: u8,
+        second: u8,
+        nanoseconds: u32,
+        time_zone_ref: TimeZoneRef,
+    ) -> Result<FoundDateTimeListRefMut<'a>, TzError> {
+        let mut found_date_time_list = FoundDateTimeListRefMut::new(buf);
+        find_date_time(&mut found_date_time_list, year, month, month_day, hour, minute, second, nanoseconds, time_zone_ref)?;
+        Ok(found_date_time_list)
     }
 
     /// Construct a date time from a Unix time in seconds with nanoseconds and a local time type
@@ -333,7 +408,12 @@ impl DateTime {
     }
 
     /// Returns the current date time associated to the specified time zone
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn now(time_zone_ref: TimeZoneRef) -> Result<Self, TzError> {
+        use core::convert::TryInto;
+        use std::time::SystemTime;
+
         let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
         Ok(Self::from_timespec(now.as_secs().try_into()?, now.subsec_nanos(), time_zone_ref)?)
     }
@@ -656,9 +736,12 @@ fn format_date_time(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::timezone::*;
     use crate::Result;
 
+    #[cfg(feature = "alloc")]
+    use crate::timezone::TimeZone;
+
+    #[cfg(feature = "alloc")]
     pub(super) fn check_equal_date_time(x: &DateTime, y: &DateTime) {
         assert_eq!(x.year(), y.year());
         assert_eq!(x.month(), y.month());
@@ -671,6 +754,7 @@ mod test {
         assert_eq!(x.nanoseconds(), y.nanoseconds());
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_date_time() -> Result<()> {
         let time_zone_utc = TimeZone::utc();
@@ -682,9 +766,12 @@ mod test {
         let time_zone_eet = TimeZone::fixed(7200)?;
         let eet = LocalTimeType::with_ut_offset(7200)?;
 
-        assert_eq!(DateTime::now(time_zone_utc.as_ref())?.local_time_type().ut_offset(), 0);
-        assert_eq!(DateTime::now(time_zone_cet.as_ref())?.local_time_type().ut_offset(), 3600);
-        assert_eq!(DateTime::now(time_zone_eet.as_ref())?.local_time_type().ut_offset(), 7200);
+        #[cfg(feature = "std")]
+        {
+            assert_eq!(DateTime::now(time_zone_utc.as_ref())?.local_time_type().ut_offset(), 0);
+            assert_eq!(DateTime::now(time_zone_cet.as_ref())?.local_time_type().ut_offset(), 3600);
+            assert_eq!(DateTime::now(time_zone_eet.as_ref())?.local_time_type().ut_offset(), 7200);
+        }
 
         let unix_times = &[
             -93750523134,
@@ -802,6 +889,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_date_time_leap_seconds() -> Result<()> {
         let utc_date_time = UtcDateTime::new(1972, 6, 30, 23, 59, 60, 1000)?;
@@ -827,6 +915,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_date_time_partial_eq_partial_ord() -> Result<()> {
         let time_zone_utc = TimeZone::utc();
@@ -938,8 +1027,11 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_date_time_format() -> Result<()> {
+        use alloc::string::ToString;
+
         let time_zones = [
             TimeZone::fixed(-49550)?,
             TimeZone::fixed(-5400)?,
@@ -985,6 +1077,7 @@ mod test {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn test_date_time_overflow() -> Result<()> {
         assert!(UtcDateTime::new(i32::MIN, 1, 1, 0, 0, 0, 0).is_ok());
@@ -1111,11 +1204,13 @@ mod test {
     #[test]
     #[cfg(feature = "const")]
     fn test_const() -> Result<()> {
+        use crate::timezone::*;
+
         macro_rules! unwrap {
             ($x:expr) => {
                 match $x {
                     Ok(x) => x,
-                    Err(error) => panic!("{}", error.0),
+                    Err(_) => const_panic!(),
                 }
             };
         }
